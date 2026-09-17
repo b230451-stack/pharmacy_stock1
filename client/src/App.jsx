@@ -64,7 +64,18 @@ function MedicinesPage() {
   const [searchParams, setSearchParams] = useSearchParams(); const search = searchParams.get('search') || ''; const page = Number(searchParams.get('page') || 1); const sortBy = searchParams.get('sortBy') || 'name';
   const [input, setInput] = useState(search); const [data, setData] = useState(null); const [error, setError] = useState(''); const [showCreate, setShowCreate] = useState(false); const [form, setForm] = useState({ name: '', genericName: '', strength: '', form: '' });
   const load = () => api.medicines({ search, page, limit: 10, sortBy }).then(setData).catch((e) => setError(e.message));
-  useEffect(load, [search, page, sortBy]);
+  useEffect(() => {
+    async function fetchMedicines() {
+      try {
+        const medicines = await api.medicines({ search, page, limit: 10, sortBy });
+        setData(medicines);
+      } catch (requestError) {
+        setError(requestError.message);
+      }
+    }
+
+    fetchMedicines();
+  }, [search, page, sortBy]);
   const submitSearch = (event) => { event.preventDefault(); setSearchParams({ ...(input ? { search: input } : {}) }); };
   const create = async (event) => { event.preventDefault(); try { await api.createMedicine(form); setForm({ name: '', genericName: '', strength: '', form: '' }); setShowCreate(false); load(); } catch (e) { setError(e.message); } };
   return <><PageHeader eyebrow="Inventory" title="Medicines" description="Search medicines and see their sellable stock at a glance." action={<button className="button button-primary" onClick={() => setShowCreate(!showCreate)}>+ Add medicine</button>} />{showCreate && <form className="panel inline-form" onSubmit={create}><h2>New medicine</h2><div className="form-grid"><Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><Field label="Generic name" value={form.genericName} onChange={(value) => setForm({ ...form, genericName: value })} /><Field label="Strength" value={form.strength} onChange={(value) => setForm({ ...form, strength: value })} /><Field label="Form" value={form.form} onChange={(value) => setForm({ ...form, form: value })} /></div><button className="button button-primary">Save medicine</button></form>}<section className="toolbar"><form className="search-form" onSubmit={submitSearch}><input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Search by medicine name..." /><button className="button button-dark">Search</button></form><SortSelect value={sortBy} onChange={(value) => setSearchParams({ ...(search ? { search } : {}), sortBy: value })}><option value="name">Name</option><option value="createdAt">Recently added</option><option value="updatedAt">Recently updated</option></SortSelect></section><ErrorMessage message={error} />{!data && !error ? <Loading /> : data?.items.length ? <><div className="panel table-panel"><table><thead><tr><th>Medicine</th><th>Details</th><th>Sellable stock</th><th>Next expiry</th><th /></tr></thead><tbody>{data.items.map((medicine) => <tr key={medicine._id}><td><Link className="table-link" to={`/medicines/${medicine._id}`}>{medicine.name}</Link></td><td>{[medicine.strength, medicine.form].filter(Boolean).join(' · ') || '—'}</td><td><strong>{medicine.stock.sellableQuantity}</strong> units</td><td>{medicine.stock.nextExpiry ? formatDate(medicine.stock.nextExpiry.expiryDate) : '—'}</td><td><Link className="text-link" to={`/medicines/${medicine._id}`}>Open</Link></td></tr>)}</tbody></table></div><Pagination pagination={data.pagination} onChange={(nextPage) => setSearchParams({ ...(search ? { search } : {}), ...(sortBy ? { sortBy } : {}), page: nextPage })} /></> : <Empty>No medicines found.</Empty>}</>;
