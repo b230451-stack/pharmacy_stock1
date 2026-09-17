@@ -7,18 +7,25 @@ import {
   getBatch,
   getMedicine,
   getStock,
+  clock,
+  importBatchRows,
   listBatches,
   listDispensingHistory,
   listExpiredStock,
   listExpiryAlerts,
   listMedicines,
   listStockHistory,
+  listOutbox,
   updateMedicine
 } from '../controllers/inventoryController.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = Router();
 router.use(requireAuth);
+
+router.post('/clock', clock);
+router.get('/outbox', listOutbox);
+router.post('/batches/import', importBatchRows);
 
 router.route('/medicines').get(listMedicines).post(createMedicine);
 router.route('/medicines/:medicineId').get(getMedicine).put(updateMedicine).delete(deleteMedicine);

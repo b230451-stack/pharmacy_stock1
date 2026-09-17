@@ -4,6 +4,9 @@ import DispensingTransaction from '../models/DispensingTransaction.js';
 import Medicine from '../models/Medicine.js';
 import StockMovement from '../models/StockMovement.js';
 import { dispenseMedicine, getStockSummary, paginationFromQuery, receiveBatch, sortDirection, todayStart } from '../services/inventoryService.js';
+import { createReorderNotifications, runClockJob } from '../services/clockService.js';
+import { importBatches } from '../services/batchImportService.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 
 const medicineSortFields = new Set(['name', 'genericName', 'createdAt', 'updatedAt']);
 const batchSortFields = new Set(['expiryDate', 'receivedDate', 'batchNumber', 'quantityRemaining']);
@@ -39,7 +42,7 @@ export async function listMedicines(request, response) {
 }
 
 export async function createMedicine(request, response) {
-  const { name, genericName, strength, form, sku } = request.body;
+  const { name, genericName, strength, form, sku, reorderThreshold } = request.body;
   if (!name?.trim()) {
     return response.status(400).json({ message: 'Medicine name is required' });
   }
@@ -49,7 +52,8 @@ export async function createMedicine(request, response) {
     genericName: genericName?.trim(),
     strength: strength?.trim(),
     form: form?.trim(),
-    sku: sku?.trim()
+    sku: sku?.trim(),
+    ...(reorderThreshold !== undefined ? { reorderThreshold: Number(reorderThreshold) } : {})
   });
   return response.status(201).json({ medicine });
 }
@@ -62,10 +66,14 @@ export async function getMedicine(request, response) {
 }
 
 export async function updateMedicine(request, response) {
-  const allowedFields = ['name', 'genericName', 'strength', 'form', 'sku'];
+  const allowedFields = ['name', 'genericName', 'strength', 'form', 'sku', 'reorderThreshold'];
   const updates = {};
   for (const field of allowedFields) {
-    if (request.body[field] !== undefined) updates[field] = request.body[field]?.trim();
+    if (request.body[field] !== undefined) {
+      updates[field] = field === 'reorderThreshold'
+        ? Number(request.body[field])
+        : request.body[field]?.trim();
+    }
   }
   if (updates.name !== undefined && !updates.name) {
     return response.status(400).json({ message: 'Medicine name cannot be empty' });
@@ -164,7 +172,31 @@ export async function dispense(request, response) {
     userId: request.user._id,
     reference: request.body.reference
   });
+  await createReorderNotifications();
   return response.status(201).json(result);
+}
+
+export async function clock(request, response) {
+  return response.json(await runClockJob());
+}
+
+export async function importBatchRows(request, response) {
+  const result = await importBatches(request.body.rows, request.user._id);
+  return response.status(201).json(result);
+}
+
+export async function listOutbox(request, response) {
+  const { page, limit, skip } = paginationFromQuery(request.query);
+  const [items, total] = await Promise.all([
+    OutboxEvent.find({ status: 'PENDING' })
+      .populate('medicine', 'name genericName strength form reorderThreshold')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    OutboxEvent.countDocuments({ status: 'PENDING' })
+  ]);
+  return response.json({ items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 }
 
 export async function listDispensingHistory(request, response) {

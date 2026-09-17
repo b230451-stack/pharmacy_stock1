@@ -40,8 +40,7 @@ export async function getStockSummary(medicineId) {
 
   return batches.reduce(
     (summary, batch) => {
-      if (batch.quantityRemaining === 0) {
-        summary.depletedQuantity += 0;
+      if (batch.quantityRemaining === 0 || batch.status === 'QUARANTINED') {
         return summary;
       }
 
@@ -145,7 +144,8 @@ export async function dispenseMedicine({ medicineId, quantity, userId, reference
       const eligibleBatches = await Batch.find({
         medicine: medicineId,
         expiryDate: { $gte: todayStart() },
-        quantityRemaining: { $gt: 0 }
+        quantityRemaining: { $gt: 0 },
+        status: { $ne: 'QUARANTINED' }
       })
         .sort({ expiryDate: 1, receivedDate: 1, _id: 1 })
         .session(session);

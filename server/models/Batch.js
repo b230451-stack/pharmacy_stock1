@@ -41,7 +41,20 @@ const batchSchema = new mongoose.Schema(
         validator: Number.isInteger,
         message: 'quantityRemaining must be a whole number'
       }
-    }
+    },
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'EXPIRING_SOON', 'QUARANTINED'],
+      default: 'ACTIVE',
+      index: true
+    },
+    expiringSoon: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    quarantinedAt: Date,
+    quarantineReason: String
   },
   { timestamps: true }
 );
