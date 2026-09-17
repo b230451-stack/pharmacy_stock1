@@ -9,10 +9,12 @@ The client uses a Vite development proxy so browser requests can use `/api` whil
 ## Model Responsibilities
 
 - `Medicine` stores the medicine identity and searchable details.
-- `Batch` stores expiry, receipt, and remaining quantities. A batch number is unique per medicine.
+- `Medicine.reorderThreshold` stores the minimum desired sellable stock used for reorder notifications.
+- `Batch` stores expiry, receipt, remaining quantities, and expiry/quarantine status. A batch number is unique per medicine.
 - `StockMovement` records received stock and future stock adjustments.
 - `DispensingTransaction` records the requested and dispensed quantity and the user who performed it.
 - `DispensingAllocation` records the exact batches used by a dispensing transaction, including batch and expiry snapshots.
+- `OutboxEvent` stores deduplicated pending reorder notifications.
 
 This separation makes the current stock easy to query while preserving the history of what happened.
 
@@ -25,9 +27,19 @@ quantityRemaining > 0
 expiryDate >= the start of today in UTC
 ```
 
-Expired batches are excluded from sellable totals even when they still contain units. Depleted batches are also excluded. Expired batches with remaining units are returned separately by the expired-stock alert endpoint so they can be acted on.
+Expired batches are excluded from sellable totals even when they still contain units. Depleted and quarantined batches are also excluded. Expired batches with remaining units are returned separately by the expired-stock alert endpoint so they can be acted on.
 
 Expiry dates are stored as MongoDB `Date` values. The server normalizes the comparison boundary to the start of the current UTC day, which keeps the behavior consistent across server and client environments.
+
+## Clock and Quarantine
+
+`POST /api/clock` performs the small scheduled-job operation required by the application. It marks batches expiring from today through seven days ahead as `EXPIRING_SOON` and quarantines expired batches with remaining stock. Quarantine is explicit in the batch status and is enforced again by stock summaries and FEFO queries, so an expired batch cannot be dispensed even if a clock request has not recently run.
+
+The same clock operation evaluates medicines with a positive reorder threshold. If sellable stock is below the threshold, it creates one pending `REORDER_REQUIRED` outbox event per medicine. A partial unique index prevents repeated pending events for the same medicine.
+
+## Batch Import
+
+The import endpoint is intentionally JSON-based to keep the assessment implementation small. Each row is normalized before insertion: text is trimmed, batch numbers are uppercased, quantities accept values such as `10 units`, and both ISO and `dd/mm/yyyy` dates are parsed. Rows with missing or invalid values are rejected. Duplicate keys already in the database or repeated within the same import are counted as deduped. Valid rows create both a batch and a `RECEIPT` stock movement.
 
 ## FEFO Dispensing
 
@@ -71,5 +83,6 @@ During testing, several real compatibility or contract issues were found and fix
 - Mongoose 9 required `ordered: true` for the multi-document allocation insert inside a session.
 - The alert endpoints initially returned `batches` while the client expected `items`. The responses were aligned with the common list response shape.
 - The client lint rule caught synchronous state clearing inside React effects. Those updates were removed while preserving the asynchronous data loading behavior.
+- The new-twist integration test covered seven-day expiry marking, expired-batch quarantine, messy import parsing and counts, and threshold-based outbox creation. Temporary records were deleted after the run.
 
 The current implementation intentionally does not claim supplier management, low-stock ordering, prescription integration, or other roadmap features that are not present in the code.

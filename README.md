@@ -123,8 +123,15 @@ Medicine listing supports `search`, `page`, `limit`, `sortBy`, and `sortOrder` q
 | POST | `/medicines/:medicineId/batches` | Yes | Receive a stock batch and record a receipt movement |
 | GET | `/medicines/:medicineId/batches` | Yes | List batches for a medicine |
 | GET | `/batches/:batchId` | Yes | Get one batch and its medicine |
+| POST | `/batches/import` | Yes | Import messy batch rows and return imported, deduped, and rejected counts |
+| POST | `/clock` | Yes | Mark seven-day expiry batches and quarantine expired batches |
+| GET | `/outbox` | Yes | List pending reorder notifications |
 
-Batch listing supports `status=sellable|expired|depleted|all`, `page`, `limit`, `sortBy`, and `sortOrder`.
+Batch listing supports `status=sellable|expired|depleted|all`, `page`, `limit`, `sortBy`, and `sortOrder`. Batches can have `ACTIVE`, `EXPIRING_SOON`, or `QUARANTINED` status. Quarantined batches cannot be dispensed.
+
+The batch import endpoint accepts JSON rows with `medicineId` or medicine name, batch number, expiry date, and quantity. It handles null rows, quantities such as `"10 units"`, `dd/mm/yyyy` dates, ISO dates, and duplicate rows.
+
+Medicines support an optional `reorderThreshold` field. When sellable in-date stock falls below that threshold, a pending reorder notification is created in the outbox. Pending notifications are deduplicated per medicine.
 
 ### Dispensing
 
@@ -159,6 +166,9 @@ Alert and history lists support pagination with `page` and `limit`. The expiring
 - If registration or login fails while MongoDB is connected, check that `JWT_SECRET` is present in `server/.env`.
 - A `401` response means the request is missing a valid `Authorization: Bearer <token>` header.
 - A dispensing request that exceeds sellable stock returns an error and does not change batch quantities.
+- `POST /api/clock` quarantines expired batches and marks batches expiring within the next seven days as `EXPIRING_SOON`.
+- `/api/outbox` only returns pending reorder notifications. A notification is created when sellable stock is below the medicine's `reorderThreshold`.
+- Batch import counts invalid or null rows as rejected and repeated existing or same-import batch keys as deduped.
 - If the client cannot reach the API, confirm the backend is on port `5000` and that the Vite development server is running with the configured proxy.
 - MongoDB transaction errors usually mean the database is running as a standalone server instead of a replica set or Atlas deployment.
 
